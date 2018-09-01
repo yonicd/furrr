@@ -21,13 +21,17 @@ gather_globals_and_packages <- function(.options, .map, .x, .f, .progress, envir
       if (debug) mdebug("Finding globals ...")
 
       # Find the globals / packages for both .f and .x
-      expr <- do.call(call, args = c(list(".f"), list(...)))
-      gp_f <- getGlobalsAndPackages(expr, envir = envir, globals = TRUE)
-      gp_x <- getGlobalsAndPackages(.x,   envir = envir, globals = TRUE)
-      globals <-  c(gp_f$globals,  gp_x$globals)
-      packages <- c(gp_f$packages, gp_x$packages)
-      gp_f <- NULL
-      gp_x <- NULL
+      gp_f <- getGlobalsAndPackages(lapply(rlang::quos(...), rlang::quo_squash), envir = envir)
+      #expr <- do.call(call, args = c(list(".f"), list(...)))
+      #gp_f <- getGlobalsAndPackages(list(expr, .x), envir = envir, globals = TRUE)
+      globals <- gp_f$globals
+      packages <- gp_f$packages
+      #gp_f <- getGlobalsAndPackages(expr, envir = envir, globals = TRUE)
+      #gp_x <- getGlobalsAndPackages(.x,   envir = envir, globals = TRUE)
+      # globals <-  c(gp_f$globals,  gp_x$globals)
+      # packages <- c(gp_f$packages, gp_x$packages)
+      # gp_f <- NULL
+      # gp_x <- NULL
 
       if (debug) {
         mdebug(" - globals found: [%d] %s", length(globals), hpaste(sQuote(names(globals))))
@@ -67,12 +71,29 @@ gather_globals_and_packages <- function(.options, .map, .x, .f, .progress, envir
 
   if (!is.element("...", names)) {
     if (debug) mdebug("Getting '...' globals ...")
-    dotdotdot <- globalsByName("...", envir = envir, mustExist = TRUE)
-    dotdotdot <- as.FutureGlobals(dotdotdot)
-    dotdotdot <- resolve(dotdotdot)
-    attr(dotdotdot, "total_size") <- objectSize(dotdotdot)
+
+    if (exists("...", envir = envir, inherits = TRUE)) {
+      .quos <- rlang::quos(...)
+      ddd <- eval_dots(.quos, envir)
+      #assign("...", ddd, envir = envir)
+      class(ddd) <- c("DotDotDotList", class(ddd))
+      ddd_globals <- list(`...` = ddd)
+      class(ddd_globals) <- c("Globals", class(ddd_globals))
+      attr(ddd_globals, "where") <- list(`...` = rlang::empty_env())
+      dotdotdot <- as.FutureGlobals(ddd_globals)
+      dotdotdot <- resolve(dotdotdot)
+      attr(dotdotdot, "total_size") <- objectSize(dotdotdot)
+      globals <- c(globals, dotdotdot)
+    }
+
     if (debug) mdebug("Getting '...' globals ... DONE")
-    globals <- c(globals, dotdotdot)
+
+    # dotdotdot <- globalsByName("...", envir = envir, mustExist = TRUE)
+    # dotdotdot <- as.FutureGlobals(dotdotdot)
+    # dotdotdot <- resolve(dotdotdot)
+    # attr(dotdotdot, "total_size") <- objectSize(dotdotdot)
+    # if (debug) mdebug("Getting '...' globals ... DONE")
+    # globals <- c(globals, dotdotdot)
   }
 
   ## Assert there are no reserved variables names among globals
@@ -136,4 +157,21 @@ gather_globals_and_packages <- function(.options, .map, .x, .f, .progress, envir
   .options$globals  <- globals
 
   .options
+}
+
+eval_dots <- function(.quos, .envir) {
+  squashed_quos <- purrr::map(.quos, rlang::quo_squash)
+  quo_classes <- purrr::map_chr(squashed_quos, class)
+  quo_names <- purrr::map_chr(squashed_quos, rlang::quo_name)
+
+  purrr::pmap(list(.quos, quo_names, quo_classes), ~{
+
+    # Quasiquotated argument
+    if(..3 == "name" && !exists(..2, envir = .envir)) {
+      ..1
+    } else {
+      rlang::eval_tidy(..1)
+    }
+
+  })
 }
