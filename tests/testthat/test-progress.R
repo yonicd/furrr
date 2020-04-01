@@ -1,5 +1,5 @@
 context("test-progress.R")
-
+Sys.setenv(R_FUTURE_FORK_ENABLE = TRUE)
 # ------------------------------------------------------------------------------
 # Setup
 
@@ -41,3 +41,4 @@ for(.e in .th$executors) {
   })
 
 }
+Sys.setenv(R_FUTURE_FORK_ENABLE = FALSE)
